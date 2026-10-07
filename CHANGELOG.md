@@ -4,6 +4,8 @@
 
 First release. A port of adinize-elixir for React Native and Node.
 
+- Requires Node 22 or later (Node 20 reached end of life in April 2026).
+
 - `track`, `trackMany` and `trackAsync`, with a background batcher and the
   same retry policy: `Retry-After` on a 429, jittered backoff on a 5xx, a
   timeout or a transport error, up to 5 attempts with the same `eventId`.
