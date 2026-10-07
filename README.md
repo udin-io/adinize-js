@@ -3,7 +3,11 @@
 TypeScript SDK for the adinize server events API, for React Native apps and
 any JavaScript runtime with `fetch`. It reports conversions to adinize, which
 attributes them to the ad click and forwards them to Meta, TikTok and Google
-Ads. Personal data leaves the device only as SHA-256 hashes.
+Ads. Email, phone, first name, last name and street address leave only as
+SHA-256 hashes. The other user fields go as given, as the API contract
+expects: `externalId`, IP address, user agent, the click and cookie ids
+(`fbp`, `fbc`, `ttp`, `gclid`, `ttclid`), city, state, postal code, country,
+`madid`, `idfv` and `anonId`.
 
 A port of [adinize-elixir](https://github.com/udin-io/adinize-elixir): same
 event shape, hashing, phone rules, retry policy, batcher and telemetry.
@@ -17,13 +21,38 @@ npm install adinize
 No runtime dependencies. `react` and `react-native` are optional peers, used
 only by the `adinize/react-native` entry.
 
-## The secret key
+## Where to run it: your backend
 
 The API authenticates with a pixel secret key. The adinize contract says to
-keep it on a server and never in a web page, and a mobile app binary is no
-safer: anyone with the app can extract the key. Prefer calling this SDK from
-your own backend, or from a thin proxy the app talks to. If you do ship a
-key in the app, use a dedicated key you can revoke on the pixel's page.
+keep it on a server, never in a web page, and a mobile app binary is no
+safer: anyone with the app can extract the key and send fake conversions.
+Run this SDK on your backend, and have the app call your own endpoint:
+
+```ts
+// On your server, the only place the key lives.
+import { Adinize } from 'adinize'
+
+const adinize = new Adinize({ secretKey: process.env.ADINIZE_SECRET_KEY, defaultCountry: 'EG' })
+
+app.post('/conversions', requireSignedInUser, async (req, res) => {
+  const order = await orders.find(req.body.orderId, req.user)
+  const result = await adinize.track('Purchase', {
+    eventId: order.id,
+    user: { email: req.user.email, clientIpAddress: req.ip, clientUserAgent: req.get('user-agent') },
+    data: { value: order.total, currency: order.currency },
+  })
+  res.json({ ok: result.ok })
+})
+```
+
+Your endpoint decides what counts as a conversion (here, a real order of
+the signed-in user), so a stranger who calls it cannot invent one.
+
+**In-app key, at your own risk.** The `adinize/react-native` entry below
+sends straight from the device, which ships the key inside the app. Anyone
+can extract it and send events as your app. If you take that trade, use a
+dedicated key for the app alone, watch the pixel for odd traffic, and
+revoke the key on the pixel's page when it leaks.
 
 ## Send an event
 
@@ -44,8 +73,9 @@ const result = await adinize.track('Purchase', {
   before sending. `data` goes as given, so any key in it, at any depth,
   named `*email*`, `*phone*`, `first_name`, `last_name`, `street_address`
   or their camelCase forms is refused with the key's path.
-- `pageUrl` goes without its query string, which can hold an email or a
-  token. Pass `queryString: true` to keep it.
+- `pageUrl` goes without its query string and fragment, which can hold an
+  email or a token. Pass `queryString: true` to keep both. A user and
+  password in the URL (`https://jane:pw@…`) are always dropped.
 - `eventId` defaults to a UUIDv4 and `eventTime` to now. Send your order
   number as `eventId` so a retry never counts twice: the server answers
   `duplicate` for an `eventId` it already holds.
@@ -87,7 +117,7 @@ const adinize = new Adinize({
     osVersion: '17.4',
     advertiserTrackingEnabled: attStatus === 'AUTHORIZED',
     attStatus,
-    bundleId: 'com.bokra.app',
+    bundleId: 'com.example.app',
     appVersion: '3.2.0',
     deviceModel: 'iPhone15,2',
     locale: 'ar_EG',
@@ -144,9 +174,15 @@ SDK codes: `MISSING_SECRET_KEY`, `INVALID_OPTION`, `TOO_MANY_EVENTS`,
 secret key, a raw personal field, the request or the response.
 
 `track` and `trackMany` do not retry unless you pass `{ retry: true }`: a
-429 waits `Retry-After`; a 5xx, a timeout or a transport error backs off
-with jitter; up to 5 attempts total with the same `eventId`. A 400 or 401
-is never retried.
+429 waits `Retry-After` plus up to 1 s of jitter; a 5xx, a timeout or a
+transport error backs off with jitter; up to 5 attempts total with the same
+`eventId`. A 429 whose `Retry-After` is over 60 seconds comes back at once
+with its `retryAfter`, never waited out. A 400, a 401 or a redirect is never
+retried.
+
+The SDK never follows a redirect: Node's `fetch` refuses one, and on React
+Native, which follows redirects anyway, an answer from another origin comes
+back as `HTTP_ERROR`.
 
 ## Sending in the background
 
@@ -167,12 +203,14 @@ await adinize.close()   // one attempt per remaining chunk, within shutdownMs
   (default 100, capped at 100). Past `maxQueue` (default 10,000) it refuses
   the newest event with `QUEUE_FULL` and emits telemetry.
 - Each chunk uses the retry policy above. A chunk that fails for good is
-  dropped with telemetry, never retried from the queue.
+  dropped with telemetry, never retried from the queue; a 429 asking for
+  more than 60 seconds drops it as `retries_exhausted` straight away.
 
 ### React Native
 
-Wrap the app once; the provider flushes the queue whenever the app leaves
-the foreground, since JavaScript timers pause in the background.
+For the in-app key setup only (see "Where to run it" above). Wrap the app
+once; the provider flushes the queue whenever the app leaves the
+foreground, since JavaScript timers pause in the background.
 
 ```tsx
 import { AdinizeProvider, useAdinize } from 'adinize/react-native'
@@ -191,6 +229,20 @@ function Checkout() {
     adinize.trackAsync('Purchase', { eventId: order.id, data: { value: order.total, currency: 'EGP' } })
 }
 ```
+
+- **Random event ids.** Hermes has no `crypto.getRandomValues`, so a
+  generated `eventId` falls back to `Math.random`, which is not
+  cryptographically random. Pass your own `eventId` (an order number) on
+  every event, or install
+  [`react-native-get-random-values`](https://github.com/LinusU/react-native-get-random-values)
+  and import it first in your entry file:
+  `import 'react-native-get-random-values'`.
+- **Redirects.** React Native's `fetch` follows redirects and ignores
+  `redirect: 'error'`. The SDK refuses an answer from another origin as
+  `HTTP_ERROR` and does not retry it. React Native's iOS handler drops
+  every header on a redirect, and Android's OkHttp drops `authorization`
+  on a cross-host one, but a 307 or 308 sends the events body to the new
+  host.
 
 ## Telemetry
 
@@ -217,7 +269,7 @@ request/response. Drop reasons: `queue_full`, `retries_exhausted`,
 | Option | Default | |
 |---|---|---|
 | `secretKey` | required | `adzsk_…` |
-| `baseUrl` | `https://adinize.ai` | https only, or http for localhost |
+| `baseUrl` | `https://adinize.ai` | https with a lowercase host name (no IP address), an optional port (1 to 65535) and path; no user, query or fragment. http only for `localhost` and `127.0.0.1` |
 | `timeoutMs` | `15000` | per request |
 | `defaultCountry` | none | `AE BH EG GB JO KW OM QA SA US` |
 | `appData` | none | device details; makes every event an app event |

@@ -133,7 +133,7 @@ describe('buildEvent', () => {
 
 describe('buildEvent for app events', () => {
   it('sends action_source app and app_data in snake_case, merging config defaults with the event', () => {
-    const defaults = { country: null, user: { anonId: 'inst_9f2', externalId: 'u1' }, appData: { ...APP, bundleId: 'com.bokra.app' } }
+    const defaults = { country: null, user: { anonId: 'inst_9f2', externalId: 'u1' }, appData: { ...APP, bundleId: 'com.example.app' } }
     const body = unwrap(
       buildEvent('Purchase', { user: { madid: 'IDFA-1', externalId: null }, appData: { appVersion: '3.2.0', attStatus: 'AUTHORIZED' } }, defaults),
     )
@@ -143,7 +143,7 @@ describe('buildEvent for app events', () => {
       os_version: '17.4',
       advertiser_tracking_enabled: true,
       att_status: 'AUTHORIZED',
-      bundle_id: 'com.bokra.app',
+      bundle_id: 'com.example.app',
       app_version: '3.2.0',
     })
     expect(body.user_data).toEqual({ anon_id: 'inst_9f2', madid: 'IDFA-1' })
