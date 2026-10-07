@@ -39,6 +39,20 @@ function handle(status: number, retryAfterHeader: string | null, json: unknown):
   return fail('HTTP_ERROR', `the API answered HTTP ${status}`, status)
 }
 
+const DEFAULT_PORTS: Record<string, string> = { 'https:': ':443', 'http:': ':80' }
+
+const origin = (url: string): string => {
+  const [, scheme = '', authority = ''] = /^([a-z][a-z0-9+.-]*:)\/\/([^/?#]*)/i.exec(url) ?? []
+  const lower = authority.toLowerCase()
+  const port = DEFAULT_PORTS[scheme.toLowerCase()]
+  return `${scheme.toLowerCase()}//${port !== undefined && lower.endsWith(port) ? lower.slice(0, -port.length) : lower}`
+}
+
+// React Native's fetch (whatwg-fetch over XMLHttpRequest) ignores `redirect: 'error'`
+// and follows redirects; its Response has no `redirected`, only the final `url`.
+const redirectedAway = (response: Response, url: string): boolean =>
+  response.redirected === true || (typeof response.url === 'string' && response.url !== '' && origin(response.url) !== origin(url))
+
 const transportError = (error: unknown): Result<never> => {
   const name = error instanceof Error ? error.name : typeof error
   return name === 'AbortError'
@@ -50,7 +64,8 @@ async function request(body: string, config: ResolvedConfig): Promise<Result<unk
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), config.timeoutMs)
   try {
-    const response = await config.fetch(`${config.baseUrl}${EVENTS_PATH}`, {
+    const url = `${config.baseUrl}${EVENTS_PATH}`
+    const response = await config.fetch(url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -61,6 +76,7 @@ async function request(body: string, config: ResolvedConfig): Promise<Result<unk
       signal: controller.signal,
       redirect: 'error',
     })
+    if (redirectedAway(response, url)) return fail('HTTP_ERROR', 'the API redirected the request')
     return handle(response.status, response.headers.get('retry-after'), parseJson(await response.text()))
   } catch (error) {
     return transportError(error)

@@ -26,8 +26,14 @@ export type ResolvedConfig = {
 
 const DEFAULT_BASE_URL = 'https://adinize.ai'
 const DEFAULT_TIMEOUT_MS = 15_000
-const HTTPS_URL = /^https:\/\/[^/?#\s]+/
-const LOCAL_HTTP_URL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/
+// An allow-list, not `new URL()`: React Native's URL (Libraries/Blob/URL.js) is a
+// regex shim whose getters disagree with WHATWG parsing. No user, query, fragment,
+// backslash or percent sign gets through, so every parser reads the same host. The
+// last label starts with a letter, so numeric hosts such as https://0x7f.1 that
+// WHATWG rewrites to an IPv4 address are refused; ports run 1 to 65535, no leading 0.
+const PORT = '(?::(?:[1-9]\\d{0,3}|[1-5]\\d{4}|6[0-4]\\d{3}|65[0-4]\\d{2}|655[0-2]\\d|6553[0-5]))?'
+const HOST = '(?:https:\\/\\/(?:[a-z0-9-]+\\.)*[a-z][a-z0-9-]*|http:\\/\\/(?:localhost|127\\.0\\.0\\.1))'
+const BASE_URL = new RegExp(`^${HOST}${PORT}(?:\\/[A-Za-z0-9._~-]*)*$`)
 
 const bounded = (value: unknown, name: string, min: number, max: number | null): Result<number> => {
   const inRange = typeof value === 'number' && Number.isInteger(value) && value >= min && (max === null || value <= max)
@@ -51,8 +57,8 @@ export function resolveConfig(config: AdinizeConfig): Result<ResolvedConfig> {
 
   if (secretKey === undefined || secretKey === null) return fail('MISSING_SECRET_KEY', 'set secretKey in the Adinize config')
   if (typeof secretKey !== 'string' || secretKey === '') return invalid('secretKey must be a non-empty string')
-  if (typeof baseUrl !== 'string' || !(HTTPS_URL.test(baseUrl) || LOCAL_HTTP_URL.test(baseUrl))) {
-    return invalid('baseUrl must be an https URL')
+  if (typeof baseUrl !== 'string' || !BASE_URL.test(baseUrl)) {
+    return invalid('baseUrl must be an https URL with a lowercase host and no user, query or fragment')
   }
   if (!(typeof timeoutMs === 'number' && Number.isInteger(timeoutMs) && timeoutMs > 0)) {
     return invalid('timeoutMs must be a positive integer')
