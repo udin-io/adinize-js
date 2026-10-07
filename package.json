@@ -54,7 +54,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zeadhani/adinize-js.git"
+    "url": "git+https://github.com/udin-io/adinize-js.git"
   },
-  "homepage": "https://github.com/zeadhani/adinize-js#readme"
+  "homepage": "https://github.com/udin-io/adinize-js#readme",
+  "bugs": {
+    "url": "https://github.com/udin-io/adinize-js/issues"
+  }
 }
