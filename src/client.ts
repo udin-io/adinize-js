@@ -19,7 +19,8 @@ const nonNegativeInteger = (value: unknown): number | null =>
 
 const retryAfter = (header: string | null, body: unknown): number | null => {
   const fromHeader = header !== null && /^\d+$/.test(header) ? Number(header) : null
-  return fromHeader ?? nonNegativeInteger(body)
+  const seconds = fromHeader ?? nonNegativeInteger(body)
+  return seconds === null ? null : Math.min(seconds, Number.MAX_SAFE_INTEGER)
 }
 
 function handle(status: number, retryAfterHeader: string | null, json: unknown): Result<unknown[]> {

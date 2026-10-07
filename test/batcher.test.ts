@@ -84,6 +84,17 @@ describe('Adinize.trackAsync', () => {
     expect(events.at(-1)).toEqual({ type: 'event:dropped', eventId: 'a', eventName: 'Lead', reason: 'retries_exhausted' })
   })
 
+  it('drops a chunk at once when a 429 asks for more than a minute, so flush does not block', async () => {
+    vi.useFakeTimers()
+    const { fetch, calls } = stubFetch(serverError(429, 'RATE_LIMITED', {}, { 'retry-after': '3600' }))
+    const { adinize, events } = client({ fetch, batcher: { flushIntervalMs: 60_000 } })
+    unwrap(adinize.trackAsync('Lead', { eventId: 'a' }))
+    void adinize.flush()
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(calls).toHaveLength(1)
+    expect(events.at(-1)).toEqual({ type: 'event:dropped', eventId: 'a', eventName: 'Lead', reason: 'retries_exhausted' })
+  })
+
   it('drops the whole chunk when the result count does not match', async () => {
     const { fetch } = stubFetch(accepted('a'))
     const { adinize, events } = client({ fetch, batcher: { flushIntervalMs: 60_000 } })

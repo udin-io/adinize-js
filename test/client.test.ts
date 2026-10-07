@@ -31,6 +31,7 @@ describe('Adinize.track over HTTP', () => {
       [serverError(429, 'RATE_LIMITED', {}, { 'retry-after': '12' }), { status: 429, retryAfter: 12 }],
       [serverError(429, 'RATE_LIMITED', { retry_after: 7 }), { status: 429, retryAfter: 7 }],
       [serverError(429, 'RATE_LIMITED', {}, { 'retry-after': '-1' }), { status: 429, retryAfter: null }],
+      [serverError(429, 'RATE_LIMITED', {}, { 'retry-after': '9'.repeat(400) }), { status: 429, retryAfter: Number.MAX_SAFE_INTEGER }],
       [() => new Response('<html>bad gateway</html>', { status: 502 }), { status: 502, code: 'HTTP_ERROR' }],
       [json(202, { results: [] }), { status: 202, code: 'HTTP_ERROR' }],
       [json(200, { ok: true }), { status: 200, code: 'INVALID_RESPONSE' }],
