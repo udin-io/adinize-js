@@ -88,13 +88,39 @@ describe('buildEvent', () => {
     expect(unwrap(build({ data })).event_data).toBe(data)
   })
 
-  it('drops the query string from pageUrl unless asked, keeping the fragment', () => {
-    expect(unwrap(build({ pageUrl: 'https://shop.example.com/thanks?email=a@b.c#top' })).page_url).toBe(
-      'https://shop.example.com/thanks#top',
+  it('drops the query string and the fragment from pageUrl unless asked', () => {
+    const cases: Array<[string, string]> = [
+      ['https://shop.example.com/thanks?email=a@b.c#top', 'https://shop.example.com/thanks'],
+      ['https://shop.example.com/thanks#access_token=t0k3n', 'https://shop.example.com/thanks'],
+      ['https://shop.example.com/p#a@b.c', 'https://shop.example.com/p'],
+      ['/thanks?x=1#y', '/thanks'],
+    ]
+    for (const [pageUrl, sent] of cases) expect(unwrap(build({ pageUrl })).page_url).toBe(sent)
+    expect(unwrap(build({ pageUrl: 'https://shop.example.com/thanks?x=a@b.c#top', queryString: true })).page_url).toBe(
+      'https://shop.example.com/thanks?x=a@b.c#top',
     )
-    expect(unwrap(build({ pageUrl: 'https://shop.example.com/thanks?x=1', queryString: true })).page_url).toBe(
-      'https://shop.example.com/thanks?x=1',
-    )
+  })
+
+  it('always drops the user and password from pageUrl', () => {
+    const cases: Array<[string, boolean, string]> = [
+      ['https://jane:s3cret@shop.example.com/thanks', false, 'https://shop.example.com/thanks'],
+      ['https://jane@shop.example.com/thanks?x=1', true, 'https://shop.example.com/thanks?x=1'],
+      ['//jane:s3cret@shop.example.com/a', false, '//shop.example.com/a'],
+      ['HTTPS://jane:s3cret@shop.example.com/a', false, 'HTTPS://shop.example.com/a'],
+      ['https:jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
+      ['https:/jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
+      ['https:\\\\jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
+      ['https:/\\jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
+      [' \nhttps://jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
+      ['ht\ttps://ja\nne:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
+      ['https://shop.example.com/p?e=a@b.c', true, 'https://shop.example.com/p?e=a@b.c'],
+    ]
+    for (const [pageUrl, queryString, sent] of cases) {
+      const sentUrl = unwrap(build({ pageUrl, queryString })).page_url
+      expect(sentUrl, pageUrl).toBe(sent)
+      const parsed = new URL(sentUrl ?? '', 'https://base.example')
+      expect(parsed.username + parsed.password, pageUrl).toBe('')
+    }
   })
 
   it('validates platformEventNames', () => {
@@ -107,7 +133,7 @@ describe('buildEvent', () => {
 
 describe('buildEvent for app events', () => {
   it('sends action_source app and app_data in snake_case, merging config defaults with the event', () => {
-    const defaults = { country: null, user: { anonId: 'inst_9f2', externalId: 'u1' }, appData: { ...APP, bundleId: 'com.bokra.app' } }
+    const defaults = { country: null, user: { anonId: 'inst_9f2', externalId: 'u1' }, appData: { ...APP, bundleId: 'com.example.app' } }
     const body = unwrap(
       buildEvent('Purchase', { user: { madid: 'IDFA-1', externalId: null }, appData: { appVersion: '3.2.0', attStatus: 'AUTHORIZED' } }, defaults),
     )
@@ -117,7 +143,7 @@ describe('buildEvent for app events', () => {
       os_version: '17.4',
       advertiser_tracking_enabled: true,
       att_status: 'AUTHORIZED',
-      bundle_id: 'com.bokra.app',
+      bundle_id: 'com.example.app',
       app_version: '3.2.0',
     })
     expect(body.user_data).toEqual({ anon_id: 'inst_9f2', madid: 'IDFA-1' })

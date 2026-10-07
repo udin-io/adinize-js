@@ -156,7 +156,17 @@ function optionalString(value: unknown, name: string): Result<string | null> {
   return typeof value === 'string' ? ok(value) : invalid(`${name} must be a string`)
 }
 
-const stripQuery = (url: string, keep: boolean): string => (keep ? url : url.replace(/\?[^#]*/, ''))
+// Matches every userinfo form a WHATWG parser still reads as one, slashes or
+// backslashes in any number after the scheme (`https:jane:pw@host`, `https:\\jane@host`).
+const USERINFO = /^(?:([a-z][a-z0-9+.-]*:)[\\/]*|[\\/]{2})[^\\/?#]*@/i
+
+// The query and the fragment can hold an email or a token; the userinfo holds a password.
+// Leading control characters and spaces, tabs and newlines go first, as a browser drops them.
+const cleanPageUrl = (url: string, keepQuery: boolean): string => {
+  const trimmed = url.replace(/^[\u0000-\u0020]+/, '').replace(/[\t\n\r]/g, '')
+  const withoutUser = trimmed.replace(USERINFO, (_, scheme: string | undefined) => `${scheme ?? ''}//`)
+  return keepQuery ? withoutUser : withoutUser.replace(/[?#].*$/s, '')
+}
 
 function parseActionSource(value: unknown, fallback: ActionSource): Result<ActionSource> {
   if (value === undefined || value === null) return ok(fallback)
@@ -327,7 +337,7 @@ export function buildEvent(name: unknown, options: unknown, defaults: EventDefau
   const body: EventBody = { event_id: eventId.value, event_name: name, event_time: eventTime.value }
   if (actionSource.value === 'app') body.action_source = 'app'
   if (visitorId.value !== null) body.visitor_id = visitorId.value
-  if (pageUrl.value !== null) body.page_url = stripQuery(pageUrl.value, opts.queryString === true)
+  if (pageUrl.value !== null) body.page_url = cleanPageUrl(pageUrl.value, opts.queryString === true)
   if (!isEmpty(userData.value)) body.user_data = userData.value
   if (!isEmpty(eventData.value)) body.event_data = eventData.value
   if (appData.value !== null) body.app_data = appData.value

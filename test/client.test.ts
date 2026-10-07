@@ -31,6 +31,7 @@ describe('Adinize.track over HTTP', () => {
       [serverError(429, 'RATE_LIMITED', {}, { 'retry-after': '12' }), { status: 429, retryAfter: 12 }],
       [serverError(429, 'RATE_LIMITED', { retry_after: 7 }), { status: 429, retryAfter: 7 }],
       [serverError(429, 'RATE_LIMITED', {}, { 'retry-after': '-1' }), { status: 429, retryAfter: null }],
+      [serverError(429, 'RATE_LIMITED', {}, { 'retry-after': '9'.repeat(400) }), { status: 429, retryAfter: Number.MAX_SAFE_INTEGER }],
       [() => new Response('<html>bad gateway</html>', { status: 502 }), { status: 502, code: 'HTTP_ERROR' }],
       [json(202, { results: [] }), { status: 202, code: 'HTTP_ERROR' }],
       [json(200, { ok: true }), { status: 200, code: 'INVALID_RESPONSE' }],
@@ -74,6 +75,71 @@ describe('Adinize.track over HTTP', () => {
       expect(unwrapError(adinize.trackAsync('Purchase')).code).toBe(code)
     }
     expect(calls).toHaveLength(0)
+  })
+
+  it('refuses every baseUrl form that could send the key to another host', async () => {
+    const { fetch, calls } = stubFetch(accepted('o1'))
+    const refused = [
+      'https://adinize.ai@evil.example',
+      'https://user:pass@adinize.ai',
+      'https://adinize.ai\\@evil.example',
+      'https://adinize.ai?next=https://evil.example',
+      'https://adinize.ai#evil',
+      'https://adinize.ai/%2e%2e',
+      'https://Adinize.ai',
+      ' https://adinize.ai',
+      'https://adinize.ai/ x',
+      'http://localhost.evil.example',
+      'http://localhost@evil.example',
+      'http://127.0.0.1.evil.example',
+      'ftp://adinize.ai',
+      'https://0x7f.1',
+      'https://2130706433',
+      'https://0177.0.0.1',
+      'https://1.2.3',
+      'https://adinize.ai:99999',
+      'https://adinize.ai:0443',
+      'https://adinize.ai:0',
+      'https://adinize.ai:',
+    ]
+    for (const baseUrl of refused) {
+      const { adinize } = client({ fetch, baseUrl })
+      expect(unwrapError(await adinize.track('Purchase')), baseUrl).toMatchObject({ code: 'INVALID_OPTION' })
+    }
+    expect(calls).toHaveLength(0)
+  })
+
+  it('takes an https host with a port or a path prefix, and http on 127.0.0.1', async () => {
+    const allowed: Array<[string, string]> = [
+      ['https://api.example.com/adinize/', 'https://api.example.com/adinize/api/server/v1/events'],
+      ['https://adinize.ai:8443', 'https://adinize.ai:8443/api/server/v1/events'],
+      ['https://adinize.ai:65535', 'https://adinize.ai:65535/api/server/v1/events'],
+      ['http://127.0.0.1:4000', 'http://127.0.0.1:4000/api/server/v1/events'],
+    ]
+    for (const [baseUrl, url] of allowed) {
+      const { fetch, calls } = stubFetch(accepted('o1'))
+      const { adinize } = client({ fetch, baseUrl })
+      unwrap(await adinize.track('Purchase', { eventId: 'o1' }))
+      expect(calls[0].url).toBe(url)
+    }
+  })
+
+  it('refuses an answer that came from a redirect, and does not retry it', async () => {
+    const answered = (props: { url?: string; redirected?: boolean }) => () =>
+      Object.defineProperties(new Response(JSON.stringify({ results: [{ event_id: 'o1', status: 'accepted' }] }), { status: 200 }), {
+        url: { value: props.url ?? '' },
+        redirected: { value: props.redirected ?? false },
+      })
+    for (const props of [{ url: 'https://evil.example/api/server/v1/events' }, { redirected: true }]) {
+      const { fetch, calls } = stubFetch(answered(props))
+      const { adinize } = client({ fetch })
+      expect(unwrapError(await adinize.track('Purchase', { eventId: 'o1', retry: true }))).toMatchObject({ status: null, code: 'HTTP_ERROR' })
+      expect(calls).toHaveLength(1)
+    }
+    for (const url of ['https://adinize.ai/api/server/v1/events', 'https://ADINIZE.ai:443/api/server/v1/events']) {
+      const { adinize } = client({ fetch: stubFetch(answered({ url })).fetch })
+      expect(unwrap(await adinize.track('Purchase', { eventId: 'o1' })).status).toBe('accepted')
+    }
   })
 
   it('allows http for localhost and trims a trailing slash', async () => {

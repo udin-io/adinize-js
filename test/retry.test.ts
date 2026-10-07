@@ -3,6 +3,8 @@ import { isRetryable, withRetry } from '../src/retry.js'
 import { fail, failWith, ok } from '../src/result.js'
 import { accepted, client, sentEvents, serverError, stubFetch, unwrap, unwrapError } from './support.js'
 
+const MAX_RETRY_AFTER_S = 60
+
 const error = (status: number | null, code = 'X') => failWith({ status, code, message: '', retryAfter: null })
 
 describe('isRetryable', () => {
@@ -30,6 +32,36 @@ describe('withRetry', () => {
     expect(calls).toBe(1)
   })
 
+  const rateLimited = (retryAfter: number) => failWith({ status: 429, code: 'RATE_LIMITED', message: '', retryAfter })
+
+  it('returns a 429 whose Retry-After passes the cap without waiting', async () => {
+    for (const retryAfter of [MAX_RETRY_AFTER_S + 1, 3600, 2_200_000]) {
+      const waits: number[] = []
+      let calls = 0
+      const result = await withRetry(async () => (calls++, rateLimited(retryAfter)), async (ms) => void waits.push(ms))
+      expect(result).toMatchObject({ ok: false, error: { status: 429, retryAfter } })
+      expect(calls).toBe(1)
+      expect(waits).toEqual([])
+    }
+  })
+
+  it('waits a Retry-After at the cap, plus up to 1 s of jitter that differs between waits', async () => {
+    const waits: number[] = []
+    for (const retryAfter of [MAX_RETRY_AFTER_S, ...Array.from({ length: 20 }, () => 3)]) {
+      const responses = [rateLimited(retryAfter), ok('sent')]
+      expect(await withRetry(async () => responses.shift() ?? ok('sent'), async (ms) => void waits.push(ms))).toEqual(ok('sent'))
+    }
+    expect(waits[0]).toBeGreaterThanOrEqual(MAX_RETRY_AFTER_S * 1000)
+    expect(waits[0]).toBeLessThan(MAX_RETRY_AFTER_S * 1000 + 1000)
+    const threes = waits.slice(1)
+    expect(threes).toHaveLength(20)
+    for (const ms of threes) {
+      expect(ms).toBeGreaterThanOrEqual(3000)
+      expect(ms).toBeLessThan(4000)
+    }
+    expect(new Set(threes).size).toBeGreaterThan(1)
+  })
+
   it('backs off with jitter up to 5 attempts, and waits Retry-After on a 429', async () => {
     const waits: number[] = []
     let calls = 0
@@ -43,10 +75,11 @@ describe('withRetry', () => {
     }
 
     const after: number[] = []
-    const rateLimited = failWith({ status: 429, code: 'RATE_LIMITED', message: '', retryAfter: 3 })
-    const responses = [rateLimited, ok('sent')]
+    const responses = [rateLimited(3), ok('sent')]
     expect(await withRetry(async () => responses.shift() ?? ok('sent'), async (ms) => void after.push(ms))).toEqual(ok('sent'))
-    expect(after).toEqual([3000])
+    expect(after).toHaveLength(1)
+    expect(after[0]).toBeGreaterThanOrEqual(3000)
+    expect(after[0]).toBeLessThan(4000)
   })
 })
 
