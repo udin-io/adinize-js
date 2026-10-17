@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildEvent } from '../src/event.js'
 import * as Hash from '../src/hash.js'
+import pageUrlVectors from './page_url_vectors.json'
 import { unwrap, unwrapError } from './support.js'
 
 const build = (options: unknown, country: 'EG' | null = 'EG') =>
@@ -88,38 +89,20 @@ describe('buildEvent', () => {
     expect(unwrap(build({ data })).event_data).toBe(data)
   })
 
-  it('drops the query string and the fragment from pageUrl unless asked', () => {
-    const cases: Array<[string, string]> = [
-      ['https://shop.example.com/thanks?email=a@b.c#top', 'https://shop.example.com/thanks'],
-      ['https://shop.example.com/thanks#access_token=t0k3n', 'https://shop.example.com/thanks'],
-      ['https://shop.example.com/p#a@b.c', 'https://shop.example.com/p'],
-      ['/thanks?x=1#y', '/thanks'],
-    ]
-    for (const [pageUrl, sent] of cases) expect(unwrap(build({ pageUrl })).page_url).toBe(sent)
-    expect(unwrap(build({ pageUrl: 'https://shop.example.com/thanks?x=a@b.c#top', queryString: true })).page_url).toBe(
-      'https://shop.example.com/thanks?x=a@b.c#top',
-    )
-  })
+  // Shared with adinize-elixir: each row gives a pageUrl, whether the caller passed
+  // queryString: true, and the page_url that goes to adinize.
+  for (const row of pageUrlVectors) {
+    it(`cleans pageUrl, ${row.note}: ${JSON.stringify(row.input)}`, () => {
+      const sent = unwrap(build({ pageUrl: row.input, queryString: row.query_string })).page_url
+      expect(sent).toBe(row.expected)
+      const parsed = new URL(sent ?? '', 'https://base.example')
+      expect(parsed.username + parsed.password).toBe('')
+    })
+  }
 
-  it('always drops the user and password from pageUrl', () => {
-    const cases: Array<[string, boolean, string]> = [
-      ['https://jane:s3cret@shop.example.com/thanks', false, 'https://shop.example.com/thanks'],
-      ['https://jane@shop.example.com/thanks?x=1', true, 'https://shop.example.com/thanks?x=1'],
-      ['//jane:s3cret@shop.example.com/a', false, '//shop.example.com/a'],
-      ['HTTPS://jane:s3cret@shop.example.com/a', false, 'HTTPS://shop.example.com/a'],
-      ['https:jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
-      ['https:/jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
-      ['https:\\\\jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
-      ['https:/\\jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
-      [' \nhttps://jane:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
-      ['ht\ttps://ja\nne:s3cret@shop.example.com/a', false, 'https://shop.example.com/a'],
-      ['https://shop.example.com/p?e=a@b.c', true, 'https://shop.example.com/p?e=a@b.c'],
-    ]
-    for (const [pageUrl, queryString, sent] of cases) {
-      const sentUrl = unwrap(build({ pageUrl, queryString })).page_url
-      expect(sentUrl, pageUrl).toBe(sent)
-      const parsed = new URL(sentUrl ?? '', 'https://base.example')
-      expect(parsed.username + parsed.password, pageUrl).toBe('')
+  it('cleans pageUrl without a queryString option as it does with queryString: false', () => {
+    for (const row of pageUrlVectors.filter((r) => !r.query_string)) {
+      expect(unwrap(build({ pageUrl: row.input })).page_url).toBe(row.expected)
     }
   })
 
