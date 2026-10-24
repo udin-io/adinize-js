@@ -1,6 +1,6 @@
 {
   "name": "adinize",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript SDK for the adinize server events API: send conversions to Meta, TikTok and Google Ads with hashed personal data.",
   "license": "MIT",
   "main": "./dist/index.js",

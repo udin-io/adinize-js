@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 (2026-10-24)
+
+- Development dependencies move to their latest releases: react-native 0.88,
+  react 19.3.1, vitest 5.0.5 and @types/node 26.6.5. Nothing in `dist` changes,
+  and the `react` and `react-native` peer ranges stay `>=18` and `>=0.74`.
+
 ## 0.1.0 (2026-10-07)
 
 First release. A port of adinize-elixir for React Native and Node.
